@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskFlow AI - Smart Task Planner</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+    .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+    h1 { font-size: 2.5em; margin-bottom: 5px; background: linear-gradient(135deg, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .subtitle { color: #94a3b8; margin-bottom: 30px; }
+    .card { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 15px; border: 1px solid #334155; }
+    .card:hover { border-color: #475569; }
+    .input-group { display: flex; gap: 10px; margin-bottom: 20px; }
+    input, select, button { padding: 12px 16px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: #e2e8f0; font-size: 14px; }
+    input { flex: 1; }
+    button { background: #6366f1; border: none; cursor: pointer; font-weight: 600; transition: background 0.2s; }
+    button:hover { background: #4f46e5; }
+    button.secondary { background: #334155; }
+    button.secondary:hover { background: #475569; }
+    .task-list { list-style: none; }
+    .task-item { display: flex; align-items: center; gap: 12px; padding: 15px; border-radius: 8px; margin-bottom: 8px; background: #1e293b; border-left: 4px solid #6366f1; }
+    .task-item.completed { opacity: 0.5; text-decoration: line-through; border-left-color: #22c55e; }
+    .task-item.high { border-left-color: #ef4444; }
+    .task-item.medium { border-left-color: #f59e0b; }
+    .task-item.low { border-left-color: #22c55e; }
+    .task-title { flex: 1; font-size: 15px; }
+    .task-insight { font-size: 12px; color: #818cf8; margin-top: 4px; }
+    .badge { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .badge.high { background: #7f1d1d; color: #fca5a5; }
+    .badge.medium { background: #78350f; color: #fcd34d; }
+    .badge.low { background: #14532d; color: #86efac; }
+    .summary { display: flex; gap: 15px; margin-bottom: 20px; }
+    .stat { flex: 1; text-align: center; padding: 15px; background: #1e293b; border-radius: 8px; }
+    .stat-value { font-size: 2em; font-weight: 700; color: #818cf8; }
+    .stat-label { font-size: 12px; color: #94a3b8; }
+    .insight-box { background: linear-gradient(135deg, #312e81, #581c87); padding: 15px; border-radius: 8px; margin-top: 10px; font-size: 13px; }
+    .subtasks { margin-top: 8px; padding-left: 20px; }
+    .subtasks li { font-size: 13px; color: #94a3b8; margin: 4px 0; }
+    .empty { text-align: center; padding: 40px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>TaskFlow AI</h1>
+    <p class="subtitle">Smart task planning powered by AI insights</p>
+    
+    <div class="summary" id="summary">
+      <div class="stat"><div class="stat-value" id="totalTasks">0</div><div class="stat-label">Total</div></div>
+      <div class="stat"><div class="stat-value" id="completedTasks">0</div><div class="stat-label">Done</div></div>
+      <div class="stat"><div class="stat-value" id="productivity">0%</div><div class="stat-label">Productivity</div></div>
+    </div>
+    
+    <div class="input-group">
+      <input type="text" id="taskInput" placeholder="What do you need to do?" onkeypress="if(event.key==='Enter')addTask()">
+      <select id="prioritySelect"><option value="high">High</option><option value="medium" selected>Medium</option><option value="low">Low</option></select>
+      <select id="categorySelect"><option value="work">Work</option><option value="personal">Personal</option><option value="health">Health</option><option value="learning">Learning</option></select>
+      <button onclick="addTask()">Add Task</button>
+    </div>
+    
+    <div id="insightBox" class="insight-box" style="display:none"></div>
+    <ul class="task-list" id="taskList"></ul>
+    <div id="emptyState" class="empty">No tasks yet. Add one above to get started!</div>
+  </div>
+  
+  <script>
+    let tasks = [];
+    
+    async function loadTasks() {
+      const res = await fetch('/api/tasks');
+      tasks = await res.json();
+      renderTasks();
+      loadSummary();
+    }
+    
+    async function addTask() {
+      const title = document.getElementById('taskInput').value.trim();
+      if (!title) return;
+      const priority = document.getElementById('prioritySelect').value;
+      const category = document.getElementById('categorySelect').value;
+      
+      const res = await fetch('/api/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, priority, category })
+      });
+      const task = await res.json();
+      tasks.push(task);
+      document.getElementById('taskInput').value = '';
+      renderTasks();
+      loadSummary();
+    }
+    
+    async function completeTask(id) {
+      await fetch('/api/tasks/' + id + '/complete', { method: 'PUT' });
+      const task = tasks.find(t => t.id === id);
+      if (task) task.completed = true;
+      renderTasks();
+      loadSummary();
+    }
+    
+    async function deleteTask(id) {
+      await fetch('/api/tasks/' + id, { method: 'DELETE' });
+      tasks = tasks.filter(t => t.id !== id);
+      renderTasks();
+      loadSummary();
+    }
+    
+    async function breakdownTask(id) {
+      const res = await fetch('/api/tasks/' + id + '/breakdown', { method: 'POST' });
+      const data = await res.json();
+      const task = tasks.find(t => t.id === id);
+      if (task) task.subtasks = data.subtasks;
+      renderTasks();
+    }
+    
+    async function loadSummary() {
+      const res = await fetch('/api/summary');
+      const summary = await res.json();
+      document.getElementById('totalTasks').textContent = summary.total;
+      document.getElementById('completedTasks').textContent = summary.completed;
+      document.getElementById('productivity').textContent = summary.productivity + '%';
+      
+      const box = document.getElementById('insightBox');
+      if (summary.total > 0) {
+        box.style.display = 'block';
+        box.textContent = summary.insights;
+      }
+    }
+    
+    function renderTasks() {
+      const list = document.getElementById('taskList');
+      const empty = document.getElementById('emptyState');
+      list.innerHTML = '';
+      
+      if (tasks.length === 0) {
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+      
+      tasks.forEach(task => {
+        const li = document.createElement('li');
+        li.className = 'task-item ' + (task.completed ? 'completed ' : '') + task.priority;
+        li.innerHTML = '<div style="flex:1">' +
+          '<div class="task-title">' + task.title + '</div>' +
+          '<div class="task-insight">' + task.aiInsight + '</div>' +
+          '<span class="badge ' + task.priority + '">' + task.priority.toUpperCase() + '</span> ' +
+          '<span class="badge" style="background:#1e293b;color:#94a3b8">' + task.category + '</span>' +
+          (task.subtasks ? '<ul class="subtasks">' + task.subtasks.map(s => '<li>' + s.title + ' (' + s.time + 'min)</li>').join('') + '</ul>' : '') +
+          '</div>' +
+          (task.completed ? '' : '<button class="secondary" onclick="completeTask(' + task.id + ')">Done</button>') +
+          '<button class="secondary" onclick="breakdownTask(' + task.id + ')">Break Down</button>' +
+          '<button class="secondary" onclick="deleteTask(' + task.id + ')">Delete</button>';
+        list.appendChild(li);
+      });
+    }
+    
+    loadTasks();
+  </script>
+</body>
+</html>
